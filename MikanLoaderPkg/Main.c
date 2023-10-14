@@ -7,14 +7,6 @@
 #include <Protocol/SimpleFileSystem.h>
 #include <Uefi.h>
 
-EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
-                           EFI_SYSTEM_TABLE* system_table) {
-  Print(L"Hello, Mikan world!");
-  while (1) {
-  }
-  return EFI_SUCCESS;
-}
-
 typedef struct MemoryMap {
   UINTN buffer_size;
   VOID* buffer;
@@ -99,5 +91,46 @@ EFI_STATUS SaveMemoryMap(MemoryMap* map, EFI_FILE_PROTOCOL* file) {
     file->Write(file, &len, buf);
   }
 
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS OpenRootDir(EFI_HANDLE image_handle, EFI_FILE_PROTOCOL** root) {
+  EFI_LOADED_IMAGE_PROTOCOL* loaded_image;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs;
+
+  gBS->OpenProtocol(image_handle, &gEfiLoadedImageProtocolGuid,
+                    (VOID**)&loaded_image, image_handle, NULL,
+                    EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+  gBS->OpenProtocol(loaded_image->DeviceHandle,
+                    &gEfiSimpleFileSystemProtocolGuid, (VOID**)&fs,
+                    image_handle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+
+  fs->OpenVolume(fs, root);
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle,
+                           EFI_SYSTEM_TABLE* system_table) {
+  CHAR8 memmap_buf[4096 * 4];
+  MemoryMap memmap = {sizeof(memmap_buf), memmap_buf, 0, 0, 0, 0};
+  GetMemoryMap(&memmap);
+
+  EFI_FILE_PROTOCOL* root_dir;
+  OpenRootDir(image_handle, &root_dir);
+
+  EFI_FILE_PROTOCOL* memmap_file;
+  root_dir->Open(
+      root_dir, &memmap_file, L"\\memmap",
+      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
+
+  SaveMemoryMap(&memmap, memmap_file);
+  memmap_file->Close(memmap_file);
+
+  Print(L"All done\n");
+
+  while (1) {
+  }
   return EFI_SUCCESS;
 }
